@@ -41,7 +41,6 @@ else:
 st.subheader("Data preview")
 st.dataframe(df.head(20), use_container_width=True)
 api_key = st.sidebar.text_input("Your OpenAI API key", type="password")
-st.sidebar.write(api_key)
 
 numeric_columns = df.select_dtypes(include="number").columns.tolist()
 
@@ -110,5 +109,6 @@ st.subheader("Cluster centers")
 centers = pd.DataFrame(kmeans.cluster_centers_, columns=selected_columns)
 
 st.dataframe(centers, use_container_width=True)
+
 
 
