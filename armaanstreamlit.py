@@ -164,14 +164,6 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.markdown(
     """
-**Get API Key:**
-1. Visit [platform.openai.com](https://platform.openai.com/)
-2. Create account
-3. Generate API key
-
-**Security:** Key stored in session only.
-"""
-)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(
@@ -315,3 +307,4 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
