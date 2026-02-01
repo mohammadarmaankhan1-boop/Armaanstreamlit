@@ -16,8 +16,7 @@ st.set_page_config(
 # HELPER FUNCTIONS
 # ============================================================================
 
-
-def validate_industry(user_input):
+def validate_industry(user_input: str):
     """Q1: Validate industry input."""
     if not user_input or user_input.strip() == "":
         return False, None, "Industry name cannot be empty."
@@ -38,47 +37,43 @@ def validate_industry(user_input):
 
 
 def count_words_like_word(text: str) -> int:
-    """
-    More "Word-like" count:
-    - Markdown links: [text](url) -> text
-    - Raw URLs replaced with placeholder (Word often counts as 1)
-    - Hyphenated / apostrophe compounds count as 1 token
-    """
+    # Remove markdown links: [text](url) -> text
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    # Replace any raw URLs with a placeholder (Word often counts them as 1)
     text = re.sub(r"https?://\S+", "URL", text)
+
+    # Count words including hyphenated/apostrophe compounds as one token
     tokens = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*", text)
     return len(tokens)
 
 
-def _response_text(response):
+def _response_text(response) -> str:
     return response.output_text or ""
 
 
-def get_wikipedia_urls(client, industry):
+def get_wikipedia_urls(client: OpenAI, industry: str):
     """Q2: Get 5 most relevant Wikipedia URLs."""
 
     system_prompt = (
         "You are a business research assistant. Find the 5 most relevant Wikipedia "
-        "pages for the given industry. Return ONLY a numbered list of 5 Wikipedia "
-        "URLs, nothing else."
+        "pages for the given industry. Return ONLY a numbered list of 5 Wikipedia URLs, nothing else."
     )
 
     user_prompt = (
         f"Find the 5 most relevant Wikipedia pages for the {industry} industry.\n\n"
-        "Include: industry overview, major companies, technologies, trends, related "
-        "sectors.\n\n"
+        "Include: industry overview, major companies, technologies, trends, related sectors.\n\n"
         "Return exactly 5 URLs:\n"
         "1. https://en.wikipedia.org/wiki/...\n"
         "2. https://en.wikipedia.org/wiki/...\n"
         "3. https://en.wikipedia.org/wiki/...\n"
         "4. https://en.wikipedia.org/wiki/...\n"
-        "5. https://en.wikipedia.org/wiki/...\n\n"
-        "Search now."
+        "5. https://en.wikipedia.org/wiki/...\n"
     )
 
     response = client.responses.create(
         model="gpt-4.1",
-        max_output_tokens=2000,
+        max_output_tokens=1200,
         tools=[{"type": "web_search"}],
         input=[
             {"role": "system", "content": system_prompt},
@@ -86,29 +81,27 @@ def get_wikipedia_urls(client, industry):
         ],
     )
 
-    response_text = _response_text(response)
+    text = _response_text(response)
 
     urls = []
-    for line in response_text.strip().split("\n"):
+    for line in text.splitlines():
         if "wikipedia.org" in line.lower():
             match = re.search(r"https?://[^\s\)]+wikipedia\.org[^\s\)\,]*", line)
             if match:
                 urls.append(match.group(0).rstrip(".,;:"))
 
-    # Fallback if model didn’t return enough links
+    # Fallback if fewer than 5 extracted
     if len(urls) < 5:
         fallback = client.responses.create(
             model="gpt-4.1",
-            max_output_tokens=1000,
+            max_output_tokens=800,
             tools=[{"type": "web_search"}],
-            input=[{"role": "user", "content": f"Wikipedia articles {industry}"}],
+            input=[{"role": "user", "content": f"Most relevant Wikipedia pages for {industry} industry. Return 5 URLs only."}],
         )
-        extra = re.findall(
-            r"https?://[^\s\)]+wikipedia\.org[^\s\)\,]*", _response_text(fallback)
-        )
+        extra = re.findall(r"https?://[^\s\)]+wikipedia\.org[^\s\)\,]*", _response_text(fallback))
         urls.extend([u.rstrip(".,;:") for u in extra])
 
-    # Deduplicate and keep first 5
+    # Deduplicate + keep first 5
     unique = []
     seen = set()
     for url in urls:
@@ -116,60 +109,37 @@ def get_wikipedia_urls(client, industry):
         if normalized not in seen and "wikipedia.org" in normalized:
             unique.append(url)
             seen.add(normalized)
-            if len(unique) == 5:
-                break
+        if len(unique) == 5:
+            break
 
     return unique[:5]
 
-def render_sources_as_links(report_text: str, urls: list[str]) -> None:
-    """
-    If the report contains a 'Sources' section, render the Wikipedia URLs as
-    clickable, numbered links (one per line).
-    """
-    if not report_text:
-        return
 
-    # Only show this block if the report seems to contain sources
-    if "source" not in report_text.lower():
-        return
-
-    st.markdown("### Sources (clickable)")
-
-    # Use the urls you already collected (best, most reliable)
-    for i, url in enumerate(urls, 1):
-        title = url.split("/wiki/")[-1].replace("_", " ") if "/wiki/" in url else url
-        st.markdown(f"**{i}.** [{title}]({url})")
-
-    st.markdown("")
-
-def generate_report(client, industry, urls):
+def generate_report(client: OpenAI, industry: str, urls: list[str]) -> str:
     """Q3: Generate industry report (<500 words)."""
 
     system_prompt = (
         "You are a senior business analyst writing market research reports. "
         "Write professionally, analytically, and concisely. "
-        "Structure: Overview → Key Players → Trends → Technologies → Outlook. "
-        "Keep reports UNDER 500 words strictly."
+        "Structure exactly: Overview, Key Players, Trends, Technologies, Outlook. "
+        "Keep the report STRICTLY under 500 words."
     )
 
-    urls_text = "\n".join([f"{i + 1}. {url}" for i, url in enumerate(urls)])
+    urls_text = "\n".join([f"{i+1}. {u}" for i, u in enumerate(urls)])
 
     user_prompt = (
-        f"Generate a market research report on {industry} for business analysts.\n\n"
-        "**Wikipedia Sources:**\n"
-        f"{urls_text}\n\n"
-        "**Requirements:**\n"
-        "- LESS than 500 words (STRICT)\n"
-        "- Sections: Overview, Key Players, Trends, Technologies, Outlook\n"
-        "- Professional, analytical tone\n"
-        "- Based on Wikipedia sources above\n"
-        "- Include specific facts/figures\n\n"
-        "Generate report now."
+        f"Write a market research report on the {industry} industry for business analysts.\n\n"
+        f"Wikipedia sources (use these):\n{urls_text}\n\n"
+        "Requirements:\n"
+        "- STRICTLY under 500 words\n"
+        "- Headings: Overview, Key Players, Trends, Technologies, Outlook\n"
+        "- Analytical, business tone\n"
+        "- Use specific facts/figures where possible\n"
     )
 
     response = client.responses.create(
         model="gpt-4.1",
-        max_output_tokens=4000,
+        max_output_tokens=1400,
         temperature=0.3,
         tools=[{"type": "web_search"}],
         input=[
@@ -181,6 +151,14 @@ def generate_report(client, industry, urls):
     return _response_text(response).strip()
 
 
+def render_sources_as_links(urls: list[str]):
+    """Render numbered, blue clickable links (one per line)."""
+    st.markdown("### Sources (Wikipedia)")
+    for i, url in enumerate(urls, 1):
+        title = url.split("/wiki/")[-1].replace("_", " ") if "/wiki/" in url else url
+        st.markdown(f"**{i}.** [{title}]({url})")
+
+
 # ============================================================================
 # MAIN APP
 # ============================================================================
@@ -188,8 +166,9 @@ def generate_report(client, industry, urls):
 st.title("📊 Market Research Assistant")
 st.write("Generate professional industry reports based on Wikipedia data")
 
-# Sidebar: API Key
-api_key = st.sidebar.text_input("Your OpenAI API key", type="password")
+# API key: optional from Streamlit secrets, else sidebar input
+default_key = st.secrets.get("OPENAI_API_KEY", "")
+api_key = st.sidebar.text_input("Your OpenAI API key", type="password", value=default_key)
 
 if api_key:
     st.sidebar.success("✅ API key configured")
@@ -203,12 +182,10 @@ st.sidebar.markdown(
 - Validates industry input (Q1)
 - Finds 5 Wikipedia pages (Q2)
 - Generates report <500 words (Q3)
-
-**Course:** MSIN0231 ML4B
 """
 )
 
-# Initialize session state
+# Session state
 if "step" not in st.session_state:
     st.session_state.step = 1
 if "industry" not in st.session_state:
@@ -219,7 +196,7 @@ if "report" not in st.session_state:
     st.session_state.report = None
 
 # ============================================================================
-# STEP 1: INDUSTRY INPUT
+# STEP 1
 # ============================================================================
 
 st.subheader("Step 1: Enter Industry")
@@ -227,7 +204,6 @@ st.subheader("Step 1: Enter Industry")
 industry_input = st.text_input(
     "Which industry would you like to research?",
     placeholder="e.g., Renewable Energy, Artificial Intelligence, Automotive",
-    help="Enter a specific industry name",
 )
 
 if st.button("🔍 Start Research", type="primary"):
@@ -236,10 +212,8 @@ if st.button("🔍 Start Research", type="primary"):
         st.stop()
 
     is_valid, cleaned, error = validate_industry(industry_input)
-
     if not is_valid:
         st.error(f"❌ {error}")
-        st.info("💡 Example: 'Renewable Energy', 'Cloud Computing', 'Biotechnology'")
     else:
         st.success(f"✅ Industry validated: **{cleaned}**")
         st.session_state.industry = cleaned
@@ -249,7 +223,7 @@ if st.button("🔍 Start Research", type="primary"):
         st.rerun()
 
 # ============================================================================
-# STEP 2: WIKIPEDIA URLS
+# STEP 2
 # ============================================================================
 
 if st.session_state.step >= 2 and st.session_state.industry:
@@ -260,27 +234,22 @@ if st.session_state.step >= 2 and st.session_state.industry:
         with st.spinner(f"🔎 Finding Wikipedia pages for {st.session_state.industry}..."):
             try:
                 client = OpenAI(api_key=api_key)
-                urls = get_wikipedia_urls(client, st.session_state.industry)
-                st.session_state.urls = urls
+                st.session_state.urls = get_wikipedia_urls(client, st.session_state.industry)
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 st.stop()
 
     if st.session_state.urls:
-        st.success(f"✅ Found {len(st.session_state.urls)} Wikipedia pages:")
-
         for i, url in enumerate(st.session_state.urls, 1):
             title = url.split("/wiki/")[-1].replace("_", " ") if "/wiki/" in url else url
             st.markdown(f"**{i}.** [{title}]({url})")
-
-        st.markdown("")
 
         if st.button("📝 Generate Report", type="primary"):
             st.session_state.step = 3
             st.rerun()
 
 # ============================================================================
-# STEP 3: INDUSTRY REPORT
+# STEP 3
 # ============================================================================
 
 if st.session_state.step >= 3 and st.session_state.urls:
@@ -291,8 +260,9 @@ if st.session_state.step >= 3 and st.session_state.urls:
         with st.spinner(f"📊 Generating report for {st.session_state.industry}..."):
             try:
                 client = OpenAI(api_key=api_key)
-                report = generate_report(client, st.session_state.industry, st.session_state.urls)
-                st.session_state.report = report
+                st.session_state.report = generate_report(
+                    client, st.session_state.industry, st.session_state.urls
+                )
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 st.stop()
@@ -303,13 +273,14 @@ if st.session_state.step >= 3 and st.session_state.urls:
         st.markdown("")
         st.markdown(st.session_state.report)
         st.markdown("")
-        
-render_sources_as_links(st.session_state.report, st.session_state.urls)
+
+        # ✅ Blue clickable source links (numbered, one per line)
+        render_sources_as_links(st.session_state.urls)
+        st.markdown("")
 
         word_count = count_words_like_word(st.session_state.report)
 
         col1, col2, col3 = st.columns(3)
-
         with col1:
             if word_count < 500:
                 st.success(f"✅ Words: {word_count}/500")
@@ -327,7 +298,7 @@ render_sources_as_links(st.session_state.report, st.session_state.urls)
                 mime="text/plain",
             )
 
-# Reset button
+# Reset
 if st.session_state.step > 1:
     st.markdown("---")
     if st.button("🔄 New Research"):
