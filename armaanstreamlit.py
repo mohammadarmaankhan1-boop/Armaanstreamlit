@@ -1,114 +1,310 @@
-print("hello world")
-import io
-
-import matplotlib.pyplot as plt
-import pandas as pd
 import streamlit as st
-from sklearn.cluster import KMeans
-from sklearn.datasets import make_blobs
-from sklearn.decomposition import PCA
+import anthropic
+import re
 
-st.set_page_config(page_title="CSV K-Means Explorer", layout="wide")
+# ============================================================================
+# PAGE CONFIGURATION
+# ============================================================================
 
-st.title("CSV K-Means Explorer")
-st.write(
-    "Upload a CSV file and run K-Means clustering. "
-    "If you skip the upload, a sample dataset will be generated for you."
+st.set_page_config(
+    page_title="Market Research Assistant",
+    page_icon="📊",
+    layout="wide"
 )
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
 
-if uploaded_file is None:
-    st.info("No CSV uploaded. Generating a sample dataset.")
-    sample_points = st.slider("Sample size", min_value=100, max_value=1000, value=300)
-    sample_clusters = st.slider("Sample cluster count", min_value=2, max_value=6, value=3)
-    data, _ = make_blobs(n_samples=sample_points, centers=sample_clusters, n_features=4, random_state=42)
-    df = pd.DataFrame(data, columns=["feature_1", "feature_2", "feature_3", "feature_4"])
+def validate_industry(user_input):
+    """Q1: Validate industry input"""
+    if not user_input or user_input.strip() == "":
+        return False, None, "Industry name cannot be empty."
+    
+    cleaned = user_input.strip()
+    
+    if len(cleaned) < 2:
+        return False, None, "Industry name too short."
+    
+    if len(cleaned) > 100:
+        return False, None, "Industry name too long (max 100 characters)."
+    
+    suspicious = ['<script', 'javascript:', 'onclick=', '--']
+    if any(p.lower() in cleaned.lower() for p in suspicious):
+        return False, None, "Invalid characters detected."
+    
+    return True, cleaned, None
 
-    # Add this here (download sample CSV)
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download sample dataset (CSV)",
-        data=csv_bytes,
-        file_name="sample_dataset.csv",
-        mime="text/csv",
+
+def get_wikipedia_urls(client, industry):
+    """Q2: Get 5 most relevant Wikipedia URLs"""
+    
+    system_prompt = """You are a business research assistant. Find the 5 most relevant Wikipedia pages for the given industry.
+Return ONLY a numbered list of 5 Wikipedia URLs, nothing else."""
+    
+    user_prompt = f"""Find the 5 most relevant Wikipedia pages for the {industry} industry.
+
+Include: industry overview, major companies, technologies, trends, related sectors.
+
+Return exactly 5 URLs:
+1. https://en.wikipedia.org/wiki/...
+2. https://en.wikipedia.org/wiki/...
+3. https://en.wikipedia.org/wiki/...
+4. https://en.wikipedia.org/wiki/...
+5. https://en.wikipedia.org/wiki/...
+
+Search now."""
+    
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2000,
+        system=system_prompt,
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
+        messages=[{"role": "user", "content": user_prompt}]
     )
+    
+    response_text = ""
+    for block in message.content:
+        if hasattr(block, 'text'):
+            response_text += block.text
+    
+    urls = []
+    for line in response_text.strip().split('\n'):
+        if 'wikipedia.org' in line.lower():
+            match = re.search(r'https?://[^\s\)]+wikipedia\.org[^\s\)\,]*', line)
+            if match:
+                urls.append(match.group(0).rstrip('.,;:'))
+    
+    if len(urls) < 5:
+        fallback = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": f"Wikipedia articles {industry}"}]
+        )
+        for block in fallback.content:
+            if hasattr(block, 'text'):
+                extra = re.findall(r'https?://[^\s\)]+wikipedia\.org[^\s\)\,]*', block.text)
+                urls.extend([u.rstrip('.,;:') for u in extra])
+    
+    unique = []
+    seen = set()
+    for url in urls:
+        normalized = url.split('#')[0].rstrip('/')
+        if normalized not in seen and 'wikipedia.org' in normalized:
+            unique.append(url)
+            seen.add(normalized)
+            if len(unique) == 5:
+                break
+    
+    return unique[:5]
 
+
+def generate_report(client, industry, urls):
+    """Q3: Generate industry report (<500 words)"""
+    
+    system_prompt = """You are a senior business analyst writing market research reports.
+Write professionally, analytically, and concisely.
+Structure: Overview → Key Players → Trends → Technologies → Outlook
+Keep reports UNDER 500 words strictly."""
+    
+    urls_text = "\n".join([f"{i+1}. {url}" for i, url in enumerate(urls)])
+    
+    user_prompt = f"""Generate a market research report on {industry} for business analysts.
+
+**Wikipedia Sources:**
+{urls_text}
+
+**Requirements:**
+- LESS than 500 words (STRICT)
+- Sections: Overview, Key Players, Trends, Technologies, Outlook
+- Professional, analytical tone
+- Based on Wikipedia sources above
+- Include specific facts/figures
+
+Generate report now."""
+    
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        temperature=0.3,
+        system=system_prompt,
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
+        messages=[{"role": "user", "content": user_prompt}]
+    )
+    
+    report = ""
+    for block in message.content:
+        if hasattr(block, 'text'):
+            report += block.text
+    
+    return report.strip()
+
+
+# ============================================================================
+# MAIN APP
+# ============================================================================
+
+st.title("📊 Market Research Assistant")
+st.write("Generate professional industry reports based on Wikipedia data")
+
+# Sidebar: API Key
+api_key = st.sidebar.text_input("Your Anthropic API key", type="password")
+
+if api_key:
+    st.sidebar.success("✅ API key configured")
 else:
-    bytes_data = uploaded_file.getvalue()
-    df = pd.read_csv(io.BytesIO(bytes_data))
+    st.sidebar.warning("⚠️ Enter API key to continue")
 
-st.subheader("Data preview")
-st.dataframe(df.head(20), use_container_width=True)
-api_key = st.sidebar.text_input("Your OpenAI API key", type="password")
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+**Get API Key:**
+1. Visit [console.anthropic.com](https://console.anthropic.com/)
+2. Create account
+3. Generate API key
 
-numeric_columns = df.select_dtypes(include="number").columns.tolist()
+**Security:** Key stored in session only.
+""")
 
-if len(numeric_columns) < 2:
-    st.error("Please provide a CSV with at least two numeric columns.")
-    st.stop()
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+**About:**
+- Validates industry input (Q1)
+- Finds 5 Wikipedia pages (Q2)  
+- Generates report <500 words (Q3)
 
-selected_columns = st.multiselect(
-    "Select numeric columns for clustering",
-    options=numeric_columns,
-    default=numeric_columns[:4],
+**Course:** MSIN0231 ML4B
+""")
+
+# Initialize session state
+if 'step' not in st.session_state:
+    st.session_state.step = 1
+if 'industry' not in st.session_state:
+    st.session_state.industry = None
+if 'urls' not in st.session_state:
+    st.session_state.urls = None
+if 'report' not in st.session_state:
+    st.session_state.report = None
+
+# ============================================================================
+# STEP 1: INDUSTRY INPUT
+# ============================================================================
+
+st.subheader("Step 1: Enter Industry")
+
+industry_input = st.text_input(
+    "Which industry would you like to research?",
+    placeholder="e.g., Renewable Energy, Artificial Intelligence, Automotive",
+    help="Enter a specific industry name"
 )
 
-if len(selected_columns) < 2:
-    st.warning("Select at least two numeric columns to run K-Means.")
-    st.stop()
+if st.button("🔍 Start Research", type="primary"):
+    if not api_key:
+        st.error("⚠️ Please enter your API key in the sidebar first")
+        st.stop()
+    
+    is_valid, cleaned, error = validate_industry(industry_input)
+    
+    if not is_valid:
+        st.error(f"❌ {error}")
+        st.info("💡 Example: 'Renewable Energy', 'Cloud Computing', 'Biotechnology'")
+    else:
+        st.success(f"✅ Industry validated: **{cleaned}**")
+        st.session_state.industry = cleaned
+        st.session_state.urls = None
+        st.session_state.report = None
+        st.session_state.step = 2
+        st.rerun()
 
-k_value = st.slider("Number of clusters (k)", min_value=2, max_value=10, value=3)
+# ============================================================================
+# STEP 2: WIKIPEDIA URLS
+# ============================================================================
 
-cluster_data = df[selected_columns].dropna()
+if st.session_state.step >= 2 and st.session_state.industry:
+    st.markdown("---")
+    st.subheader("Step 2: Wikipedia Sources")
+    
+    if st.session_state.urls is None:
+        with st.spinner(f"🔎 Finding Wikipedia pages for {st.session_state.industry}..."):
+            try:
+                client = anthropic.Anthropic(api_key=api_key)
+                urls = get_wikipedia_urls(client, st.session_state.industry)
+                st.session_state.urls = urls
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                st.stop()
+    
+    if st.session_state.urls:
+        st.success(f"✅ Found {len(st.session_state.urls)} Wikipedia pages:")
+        
+        for i, url in enumerate(st.session_state.urls, 1):
+            title = url.split('/wiki/')[-1].replace('_', ' ') if '/wiki/' in url else url
+            st.markdown(f"**{i}.** [{title}]({url})")
+        
+        st.markdown("")
+        
+        if st.button("📝 Generate Report", type="primary"):
+            st.session_state.step = 3
+            st.rerun()
 
-if cluster_data.empty:
-    st.error("Selected columns have no usable numeric data after removing missing values.")
-    st.stop()
+# ============================================================================
+# STEP 3: INDUSTRY REPORT
+# ============================================================================
 
-kmeans = KMeans(n_clusters=k_value, random_state=42, n_init="auto")
-cluster_labels = kmeans.fit_predict(cluster_data)
+if st.session_state.step >= 3 and st.session_state.urls:
+    st.markdown("---")
+    st.subheader("Step 3: Industry Report")
+    
+    if st.session_state.report is None:
+        with st.spinner(f"📊 Generating report for {st.session_state.industry}..."):
+            try:
+                client = anthropic.Anthropic(api_key=api_key)
+                report = generate_report(client, st.session_state.industry, st.session_state.urls)
+                st.session_state.report = report
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                st.stop()
+    
+    if st.session_state.report:
+        st.markdown("### 📄 Market Research Report")
+        st.markdown(f"**Industry:** {st.session_state.industry}")
+        st.markdown("")
+        
+        st.markdown(st.session_state.report)
+        
+        st.markdown("")
+        
+        word_count = len(st.session_state.report.split())
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if word_count < 500:
+                st.success(f"✅ Words: {word_count}/500")
+            else:
+                st.warning(f"⚠️ Words: {word_count}/500")
+        
+        with col2:
+            st.info(f"📚 Sources: {len(st.session_state.urls)}")
+        
+        with col3:
+            st.download_button(
+                label="⬇️ Download",
+                data=st.session_state.report,
+                file_name=f"{st.session_state.industry.replace(' ', '_')}_report.txt",
+                mime="text/plain"
+            )
 
-cluster_results = cluster_data.copy()
-cluster_results["cluster"] = cluster_labels
+# Reset button
+if st.session_state.step > 1:
+    st.markdown("---")
+    if st.button("🔄 New Research"):
+        st.session_state.step = 1
+        st.session_state.industry = None
+        st.session_state.urls = None
+        st.session_state.report = None
+        st.rerun()
 
-st.subheader("Clustered data")
-st.dataframe(cluster_results.head(20), use_container_width=True)
-
-st.subheader("Cluster visualization")
-
-if cluster_data.shape[1] > 2:
-    pca = PCA(n_components=2, random_state=42)
-    projected = pca.fit_transform(cluster_data)
-    plot_df = pd.DataFrame(projected, columns=["Component 1", "Component 2"])
-    st.caption("Visualization uses PCA to reduce dimensions to 2 components.")
-else:
-    plot_df = cluster_data.iloc[:, :2].copy()
-    plot_df.columns = ["Component 1", "Component 2"]
-
-plot_df["cluster"] = cluster_labels
-
-fig, ax = plt.subplots(figsize=(8, 6))
-scatter = ax.scatter(
-    plot_df["Component 1"],
-    plot_df["Component 2"],
-    c=plot_df["cluster"],
-    cmap="tab10",
-    alpha=0.8,
-)
-legend = ax.legend(*scatter.legend_elements(), title="Cluster")
-ax.add_artist(legend)
-ax.set_xlabel("Component 1")
-ax.set_ylabel("Component 2")
-ax.set_title("K-Means Clusters")
-ax.grid(True, linestyle="--", alpha=0.4)
-
-st.pyplot(fig)
-
-st.subheader("Cluster centers")
-centers = pd.DataFrame(kmeans.cluster_centers_, columns=selected_columns)
-
-st.dataframe(centers, use_container_width=True)
 
 
 
