@@ -36,16 +36,19 @@ def validate_industry(user_input):
 
     return True, cleaned, None
 
+
 def count_words_like_word(text: str) -> int:
-    # Remove markdown links: [text](url) -> text
+    """
+    More "Word-like" count:
+    - Markdown links: [text](url) -> text
+    - Raw URLs replaced with placeholder (Word often counts as 1)
+    - Hyphenated / apostrophe compounds count as 1 token
+    """
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-
-    # Replace raw URLs with placeholder
     text = re.sub(r"https?://\S+", "URL", text)
-
-    # Count words including hyphenated/apostrophe words as one
     tokens = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*", text)
     return len(tokens)
+
 
 def _response_text(response):
     return response.output_text or ""
@@ -92,6 +95,7 @@ def get_wikipedia_urls(client, industry):
             if match:
                 urls.append(match.group(0).rstrip(".,;:"))
 
+    # Fallback if model didn’t return enough links
     if len(urls) < 5:
         fallback = client.responses.create(
             model="gpt-4.1",
@@ -104,6 +108,7 @@ def get_wikipedia_urls(client, industry):
         )
         urls.extend([u.rstrip(".,;:") for u in extra])
 
+    # Deduplicate and keep first 5
     unique = []
     seen = set()
     for url in urls:
@@ -176,7 +181,7 @@ st.sidebar.markdown(
     """
 **About:**
 - Validates industry input (Q1)
-- Finds 5 Wikipedia pages (Q2)  
+- Finds 5 Wikipedia pages (Q2)
 - Generates report <500 words (Q3)
 
 **Course:** MSIN0231 ML4B
@@ -266,15 +271,13 @@ if st.session_state.step >= 3 and st.session_state.urls:
         with st.spinner(f"📊 Generating report for {st.session_state.industry}..."):
             try:
                 client = OpenAI(api_key=api_key)
-                report = generate_report(
-                    client, st.session_state.industry, st.session_state.urls
-                )
+                report = generate_report(client, st.session_state.industry, st.session_state.urls)
                 st.session_state.report = report
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 st.stop()
 
- if st.session_state.report:
+    if st.session_state.report:
         st.markdown("### 📄 Market Research Report")
         st.markdown(f"**Industry:** {st.session_state.industry}")
         st.markdown("")
@@ -302,7 +305,6 @@ if st.session_state.step >= 3 and st.session_state.urls:
                 mime="text/plain",
             )
 
-
 # Reset button
 if st.session_state.step > 1:
     st.markdown("---")
@@ -312,9 +314,6 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
-
-
-
 
 
 
