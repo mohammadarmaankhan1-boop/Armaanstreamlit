@@ -37,15 +37,41 @@ def validate_industry(user_input: str):
 
 
 def count_words_like_word(text: str) -> int:
-    # Remove markdown links: [text](url) -> text
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    """
+    Count words more like Word/Docs:
+    - Removes markdown links [text](url) -> text
+    - Treats raw URLs as 1 token
+    - Counts hyphenated/apostrophe compounds as one token
+    """
+    if not text:
+        return 0
 
-    # Replace any raw URLs with a placeholder (Word often counts them as 1)
-    text = re.sub(r"https?://\S+", "URL", text)
-
-    # Count words including hyphenated/apostrophe compounds as one token
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)   # [text](url) -> text
+    text = re.sub(r"https?://\S+", "URL", text)            # URLs -> URL
     tokens = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*", text)
     return len(tokens)
+
+
+def clean_report_text(text: str) -> str:
+    """
+    Remove any model-generated Sources/References lines and any URLs from the report.
+    We show sources separately as clickable links.
+    """
+    if not text:
+        return ""
+
+    # Remove lines like: "Sources: Wikipedia – ...." / "References: ...."
+    text = re.sub(r"(?im)^\s*(sources?|references?)\s*:\s*.*$", "", text)
+
+    # Remove standalone URL lines like: "[1] https://...." or "1. https://..."
+    text = re.sub(r"(?im)^\s*(\[\d+\]|\d+\.?)?\s*https?://\S+\s*$", "", text)
+
+    # Remove any remaining inline URLs
+    text = re.sub(r"https?://\S+", "", text)
+
+    # Collapse excessive blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 
 def _response_text(response) -> str:
@@ -56,12 +82,9 @@ def get_wikipedia_urls(client: OpenAI, industry: str):
     """Q2: Get 5 most relevant Wikipedia URLs."""
 
     system_prompt = (
-    "You are a senior business analyst writing market research reports. "
-    "Write professionally, analytically, and concisely. "
-    "Structure: Overview → Key Players → Trends → Technologies → Outlook. "
-    "Keep reports UNDER 500 words strictly. "
-    "DO NOT include a 'Sources' section and DO NOT output any URLs."
-)
+        "You are a business research assistant. Find the 5 most relevant Wikipedia pages "
+        "for the given industry. Return ONLY a numbered list of 5 Wikipedia URLs, nothing else."
+    )
 
     user_prompt = (
         f"Find the 5 most relevant Wikipedia pages for the {industry} industry.\n\n"
@@ -99,7 +122,7 @@ def get_wikipedia_urls(client: OpenAI, industry: str):
             model="gpt-4.1",
             max_output_tokens=800,
             tools=[{"type": "web_search"}],
-            input=[{"role": "user", "content": f"Most relevant Wikipedia pages for {industry} industry. Return 5 URLs only."}],
+            input=[{"role": "user", "content": f"Most relevant Wikipedia pages for {industry} industry. Return 5 Wikipedia URLs only."}],
         )
         extra = re.findall(r"https?://[^\s\)]+wikipedia\.org[^\s\)\,]*", _response_text(fallback))
         urls.extend([u.rstrip(".,;:") for u in extra])
@@ -125,7 +148,9 @@ def generate_report(client: OpenAI, industry: str, urls: list[str]) -> str:
         "You are a senior business analyst writing market research reports. "
         "Write professionally, analytically, and concisely. "
         "Structure exactly: Overview, Key Players, Trends, Technologies, Outlook. "
-        "Keep the report STRICTLY under 500 words."
+        "Keep the report STRICTLY under 500 words. "
+        "DO NOT include a Sources/References section. "
+        "DO NOT output any URLs."
     )
 
     urls_text = "\n".join([f"{i+1}. {u}" for i, u in enumerate(urls)])
@@ -138,6 +163,7 @@ def generate_report(client: OpenAI, industry: str, urls: list[str]) -> str:
         "- Headings: Overview, Key Players, Trends, Technologies, Outlook\n"
         "- Analytical, business tone\n"
         "- Use specific facts/figures where possible\n"
+        "- IMPORTANT: Do NOT include Sources/References and do NOT include any URLs\n"
     )
 
     response = client.responses.create(
@@ -151,7 +177,9 @@ def generate_report(client: OpenAI, industry: str, urls: list[str]) -> str:
         ],
     )
 
-    return _response_text(response).strip()
+    report = _response_text(response).strip()
+    report = clean_report_text(report)  # ✅ force-remove sources/urls if model still outputs them
+    return report
 
 
 def render_sources_as_links(urls: list[str]):
@@ -185,6 +213,8 @@ st.sidebar.markdown(
 - Validates industry input (Q1)
 - Finds 5 Wikipedia pages (Q2)
 - Generates report <500 words (Q3)
+
+**Course:** MSIN0231 ML4B
 """
 )
 
@@ -217,6 +247,7 @@ if st.button("🔍 Start Research", type="primary"):
     is_valid, cleaned, error = validate_industry(industry_input)
     if not is_valid:
         st.error(f"❌ {error}")
+        st.info("💡 Example: 'Renewable Energy', 'Cloud Computing', 'Biotechnology'")
     else:
         st.success(f"✅ Industry validated: **{cleaned}**")
         st.session_state.industry = cleaned
@@ -290,6 +321,9 @@ if st.session_state.step >= 3 and st.session_state.urls:
             else:
                 st.warning(f"⚠️ Words: {word_count}/500")
 
+        with col2:
+            st.info(f"📚 Sources: {len(st.session_state.urls)}")
+
         with col3:
             st.download_button(
                 label="⬇️ Download",
@@ -307,10 +341,3 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
-
-
-
-
-
-
-
