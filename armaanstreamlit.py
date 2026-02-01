@@ -274,19 +274,17 @@ if st.session_state.step >= 3 and st.session_state.urls:
                 st.error(f"❌ Error: {str(e)}")
                 st.stop()
 
-    if st.session_state.report:
-        st.markdown("### 📄 Market Research Report")
-        st.markdown(f"**Industry:** {st.session_state.industry}")
-        st.markdown("")
+   if st.session_state.report:
+    st.markdown("### Market Research Report")
+    st.markdown(f"**Industry:** {st.session_state.industry}")
+    st.markdown("")
+    st.markdown(st.session_state.report)
+    st.markdown("")
 
-        st.markdown(st.session_state.report)
+    word_count = count_words_like_word(st.session_state.report)
 
-        st.markdown("")
-
-       word_count = count_words_like_word(st.session_state.report)
-
-        col1, col2, col3 = st.columns(3)
-
+    col1, col2, col3 = st.columns(3)
+       
         with col1:
             if word_count < 500:
                 st.success(f"✅ Words: {word_count}/500")
@@ -313,6 +311,7 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
 
