@@ -35,6 +35,11 @@ def validate_industry(user_input):
         return False, None, "Invalid characters detected."
 
     return True, cleaned, None
+    def count_words_like_word(text: str) -> int:
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"https?://\S+", "URL", text)
+    tokens = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*", text)
+    return len(tokens)
 
 
 def _response_text(response):
@@ -273,7 +278,7 @@ if st.session_state.step >= 3 and st.session_state.urls:
 
         st.markdown("")
 
-        word_count = len(re.findall(r"\b\w+\b", st.session_state.report))
+       word_count = count_words_like_word(st.session_state.report)
 
         col1, col2, col3 = st.columns(3)
 
@@ -303,6 +308,7 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
 
