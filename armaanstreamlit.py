@@ -273,7 +273,7 @@ if st.session_state.step >= 3 and st.session_state.urls:
 
         st.markdown("")
 
-        word_count = len(st.session_state.report.split())
+        word_count = len(re.findall(r"\b\w+\b", st.session_state.report))
 
         col1, col2, col3 = st.columns(3)
 
@@ -303,5 +303,6 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
