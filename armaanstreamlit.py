@@ -121,6 +121,26 @@ def get_wikipedia_urls(client, industry):
 
     return unique[:5]
 
+def render_sources_as_links(report_text: str, urls: list[str]) -> None:
+    """
+    If the report contains a 'Sources' section, render the Wikipedia URLs as
+    clickable, numbered links (one per line).
+    """
+    if not report_text:
+        return
+
+    # Only show this block if the report seems to contain sources
+    if "source" not in report_text.lower():
+        return
+
+    st.markdown("### Sources (clickable)")
+
+    # Use the urls you already collected (best, most reliable)
+    for i, url in enumerate(urls, 1):
+        title = url.split("/wiki/")[-1].replace("_", " ") if "/wiki/" in url else url
+        st.markdown(f"**{i}.** [{title}]({url})")
+
+    st.markdown("")
 
 def generate_report(client, industry, urls):
     """Q3: Generate industry report (<500 words)."""
@@ -283,6 +303,8 @@ if st.session_state.step >= 3 and st.session_state.urls:
         st.markdown("")
         st.markdown(st.session_state.report)
         st.markdown("")
+        
+render_sources_as_links(st.session_state.report, st.session_state.urls)
 
         word_count = count_words_like_word(st.session_state.report)
 
@@ -314,6 +336,7 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
 
