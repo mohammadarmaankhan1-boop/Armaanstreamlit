@@ -35,12 +35,17 @@ def validate_industry(user_input):
         return False, None, "Invalid characters detected."
 
     return True, cleaned, None
-    def count_words_like_word(text: str) -> int:
+
+def count_words_like_word(text: str) -> int:
+    # Remove markdown links: [text](url) -> text
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    # Replace raw URLs with placeholder
     text = re.sub(r"https?://\S+", "URL", text)
+
+    # Count words including hyphenated/apostrophe words as one
     tokens = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*", text)
     return len(tokens)
-
 
 def _response_text(response):
     return response.output_text or ""
@@ -308,6 +313,7 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
 
