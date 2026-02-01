@@ -287,9 +287,6 @@ if st.session_state.step >= 3 and st.session_state.urls:
             else:
                 st.warning(f"⚠️ Words: {word_count}/500")
 
-        with col2:
-            st.info(f"📚 Sources: {len(st.session_state.urls)}")
-
         with col3:
             st.download_button(
                 label="⬇️ Download",
@@ -307,6 +304,7 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
 
