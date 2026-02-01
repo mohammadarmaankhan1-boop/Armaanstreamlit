@@ -56,9 +56,12 @@ def get_wikipedia_urls(client: OpenAI, industry: str):
     """Q2: Get 5 most relevant Wikipedia URLs."""
 
     system_prompt = (
-        "You are a business research assistant. Find the 5 most relevant Wikipedia "
-        "pages for the given industry. Return ONLY a numbered list of 5 Wikipedia URLs, nothing else."
-    )
+    "You are a senior business analyst writing market research reports. "
+    "Write professionally, analytically, and concisely. "
+    "Structure: Overview → Key Players → Trends → Technologies → Outlook. "
+    "Keep reports UNDER 500 words strictly. "
+    "DO NOT include a 'Sources' section and DO NOT output any URLs."
+)
 
     user_prompt = (
         f"Find the 5 most relevant Wikipedia pages for the {industry} industry.\n\n"
@@ -304,6 +307,7 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
 
 
