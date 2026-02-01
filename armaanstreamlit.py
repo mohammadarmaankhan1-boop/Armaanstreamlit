@@ -164,10 +164,6 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.markdown(
     """
-
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    """
 **About:**
 - Validates industry input (Q1)
 - Finds 5 Wikipedia pages (Q2)  
@@ -307,4 +303,5 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
+
 
