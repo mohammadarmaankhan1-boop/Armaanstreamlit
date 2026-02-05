@@ -198,8 +198,7 @@ st.title("📊 Market Research Assistant")
 st.write("Generate professional industry reports based on Wikipedia data")
 
 # API key: optional from Streamlit secrets, else sidebar input
-default_key = st.secrets.get("OPENAI_API_KEY", "")
-api_key = st.sidebar.text_input("Your OpenAI API key", type="password", value=default_key)
+api_key = st.sidebar.text_input("Your OpenAI API key", type="password", value="").strip()
 
 if api_key:
     st.sidebar.success("✅ API key configured")
@@ -341,4 +340,3 @@ if st.session_state.step > 1:
         st.session_state.urls = None
         st.session_state.report = None
         st.rerun()
-
